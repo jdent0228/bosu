@@ -1,0 +1,36 @@
+name: 보수교육 일정 갱신
+
+on:
+  schedule:
+    - cron: '0 20 * * *'      # 매일 20:00 UTC = 05:00 KST (24시간 주기)
+  workflow_dispatch:           # 수동 실행 버튼
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-schedule
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 앞 6개월 재크롤 + 병합
+        shell: pwsh
+        run: ./refresh.ps1 -Months 6
+
+      - name: 변경분 커밋 & 푸시
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.json data.js
+          if git diff --staged --quiet; then
+            echo "변경 없음 — 커밋 생략"
+          else
+            git commit -m "chore: 보수교육 일정 데이터 자동 갱신"
+            git push
+          fi
