@@ -59,13 +59,15 @@
   .more-btn{flex:0 0 auto;line-height:23px;white-space:nowrap;font-size:11px;color:var(--muted-2);
     background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;}
   .more-btn:hover{color:var(--text);}
-  .chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#bcbcbc;
-    border:1px solid var(--line);border-radius:12px;padding:2px 7px;cursor:pointer;
+  .chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted-2);
+    border:1px solid var(--line-strong);border-radius:12px;padding:2px 7px;cursor:pointer;
     user-select:none;background:var(--bg);white-space:nowrap;}
   .chip input{display:none;}
-  .chip i{color:#d0d0d0;font-style:normal;font-size:9.5px;}
-  .chip.on{background:#f2f2f2;color:var(--muted-2);border-color:var(--line-strong);}
-  .chip.on i{color:var(--muted);}
+  .chip i{color:var(--muted);font-style:normal;font-size:9.5px;}
+  .chip.on{background:#ececec;color:var(--text);border-color:#b9b9b9;}
+  .chip.on i{color:var(--muted-2);}
+  .chip.zero{color:#d3d3d3;border-color:var(--line);pointer-events:none;}
+  .chip.zero i{color:#e0e0e0;}
   .count{padding:14px 2px 8px;font-size:12.5px;color:var(--muted);}
   .count b{color:var(--text);font-weight:600;}
 
@@ -130,14 +132,14 @@
       <div class="adv-group">
         <div class="adv-head">
           <span class="adv-label">지역<b id="regionSel"></b></span>
-          <span class="adv-tools"><button class="lnk" data-all="region">모두 선택</button><button class="lnk" data-none="region">선택 해제</button></span>
+          <span class="adv-tools"><button class="lnk" data-clear="region">초기화</button></span>
         </div>
         <div class="chips-wrap"><div class="chips" id="regionChips"></div><button class="more-btn" data-more="region" style="display:none">더보기</button></div>
       </div>
       <div class="adv-group">
         <div class="adv-head">
           <span class="adv-label">점수<b id="scoreSel"></b></span>
-          <span class="adv-tools"><button class="lnk" data-all="score">모두 선택</button><button class="lnk" data-none="score">선택 해제</button></span>
+          <span class="adv-tools"><button class="lnk" data-clear="score">초기화</button></span>
         </div>
         <div class="chips-wrap"><div class="chips" id="scoreChips"></div><button class="more-btn" data-more="score" style="display:none">더보기</button></div>
       </div>
@@ -206,7 +208,7 @@
     curYear.textContent = (selMonth===''?'전체 기간':selYear+'년');
   }
   function centerTo(el){ swiper.scrollTo({left:el.offsetLeft-(swiper.clientWidth-el.offsetWidth)/2,behavior:'smooth'}); }
-  function selectItem(it){ selYear=it.y; selMonth=it.m; markSel(); render(); }
+  function selectItem(it){ selYear=it.y; selMonth=it.m; markSel(); refresh(); }
 
   var scrollTimer=null;
   swiper.addEventListener('scroll',function(){
@@ -221,50 +223,64 @@
     },90);
   });
 
-  // ----- 상세 검색 칩 (기본값: 모두 선택) -----
+  // ----- 상세 검색: 패싯 필터 -----
+  // 빈 선택 = 제한 없음(전체). 각 칩의 숫자는 "선택된 월 + 다른 필터"를 적용한 건수로 실시간 갱신.
   var chipRefs={region:[],score:[]};
-  function buildChips(container, field, sortFn, labelFn, targetSet){
+  function setOf(field){return field==='region'?fRegion:fScore;}
+
+  // exclude: 카운트 계산 시 제외할 패싯(자기 자신) — 표준 패싯 규칙
+  function matches(x, exclude){
+    if(selMonth!=='' && !(x.year===selYear && x.month===selMonth)) return false;
+    if(exclude!=='region' && fRegion.size && !fRegion.has(String(x.region))) return false;
+    if(exclude!=='score'  && fScore.size  && !fScore.has(String(x.score)))   return false;
+    return true;
+  }
+
+  function buildChips(container, field, sortFn, labelFn){
     var m={}; items.forEach(function(x){var v=String(x[field]);m[v]=(m[v]||0)+1;});
-    Object.keys(m).sort(sortFn(m)).forEach(function(v){
-      targetSet.add(v);                                  // 기본 모두 선택
-      var lab=document.createElement('label');lab.className='chip on';
-      lab.innerHTML='<input type="checkbox" value="'+v+'" checked>'+labelFn(v)+' <i>'+m[v]+'</i>';
+    Object.keys(m).sort(sortFn(m)).forEach(function(v){   // 순서는 전체 기준으로 고정(칩이 안 움직이게)
+      var lab=document.createElement('label');lab.className='chip';
+      lab.innerHTML='<input type="checkbox" value="'+v+'">'+labelFn(v)+' <i></i>';
       var cb=lab.querySelector('input');
       cb.addEventListener('change',function(){
-        if(cb.checked){targetSet.add(v);lab.classList.add('on');}
-        else{targetSet.delete(v);lab.classList.remove('on');}
-        updateSel(field); render();
+        if(cb.checked)setOf(field).add(v); else setOf(field).delete(v);
+        refresh();
       });
-      chipRefs[field].push({v:v,cb:cb,lab:lab});
+      chipRefs[field].push({v:v,cb:cb,lab:lab,cnt:lab.querySelector('i')});
       container.appendChild(lab);
     });
   }
-  function updateSel(field){
-    var set=(field==='region'?fRegion:fScore);
-    var el=document.getElementById(field+'Sel');
-    if(el) el.textContent=' '+set.size+' / '+chipRefs[field].length;
-  }
   buildChips(document.getElementById('regionChips'),'region',
-    function(m){return function(a,b){return m[b]-m[a];};}, function(v){return v;}, fRegion);
+    function(m){return function(a,b){return m[b]-m[a];};}, function(v){return v;});
   buildChips(document.getElementById('scoreChips'),'score',
     function(m){return function(a,b){
       var x=(a==='null'?999:+a), y=(b==='null'?999:+b); return x-y;   // 점수없음(필수교육만)은 맨 뒤
     };},
-    function(v){return v==='null'?'점수없음':v+'점';}, fScore);
+    function(v){return v==='null'?'점수없음':v+'점';});
 
-  function setAll(field, on){
-    var set=(field==='region'?fRegion:fScore);
-    chipRefs[field].forEach(function(r){
-      r.cb.checked=on; r.lab.classList.toggle('on',on);
-      if(on)set.add(r.v);else set.delete(r.v);
+  function updateFacet(field){
+    var set=setOf(field), counts={};
+    items.forEach(function(x){
+      if(matches(x, field)){var v=String(x[field==='region'?'region':'score']);counts[v]=(counts[v]||0)+1;}
     });
-    updateSel(field); render();
+    chipRefs[field].forEach(function(r){
+      var c=counts[r.v]||0;
+      r.cnt.textContent=c;
+      r.lab.classList.toggle('on', set.has(r.v));
+      r.lab.classList.toggle('zero', c===0 && !set.has(r.v));
+    });
+    var el=document.getElementById(field+'Sel');
+    if(el) el.textContent=set.size?(' '+set.size+'개 선택'):' 전체';
   }
-  updateSel('region'); updateSel('score');
-  Array.prototype.forEach.call(document.querySelectorAll('[data-all]'),function(b){
-    b.addEventListener('click',function(){setAll(b.dataset.all,true);});});
-  Array.prototype.forEach.call(document.querySelectorAll('[data-none]'),function(b){
-    b.addEventListener('click',function(){setAll(b.dataset.none,false);});});
+  function refresh(){ updateFacet('region'); updateFacet('score'); render(); }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-clear]'),function(b){
+    b.addEventListener('click',function(){
+      var f=b.dataset.clear;
+      setOf(f).clear();
+      chipRefs[f].forEach(function(r){r.cb.checked=false;});
+      refresh();
+    });});
 
   // ----- 상세검색: 기본 1줄만, 넘치면 더보기 -----
   function setupMore(field){
@@ -296,12 +312,7 @@
     if(x.endDate&&x.endDate!==x.date){var e=x.endDate.split('-');s+='<br>~'+e[1]+'.'+e[2]+'('+weekday(x.endDate)+')';}return s;}
 
   function render(){
-    var rows=items.filter(function(x){
-      if(selMonth!=='' && !(x.year===selYear && x.month===selMonth)) return false;
-      if(!fRegion.has(String(x.region))) return false;   // 기본 모두 선택 → 체크된 지역만
-      if(!fScore.has(String(x.score))) return false;
-      return true;
-    });
+    var rows=items.filter(function(x){return matches(x,'');});
     rows.sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:(a.start<b.start?-1:1);});
     resultCount.textContent=rows.length;
     tbody.innerHTML=''; empty.style.display=rows.length?'none':'block';
@@ -336,7 +347,7 @@
   }
 
   // ----- 초기화 -----
-  markSel(); render();
+  markSel(); refresh();
   (function(){var el=monthEls[selMonth===''?'all':key(selYear,selMonth)];
     if(el) swiper.scrollLeft=el.offsetLeft-(swiper.clientWidth-el.offsetWidth)/2;})();
 })();
